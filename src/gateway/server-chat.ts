@@ -5,7 +5,7 @@ import { type AgentEventPayload, getAgentRunContext } from "../infra/agent-event
 import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
 import { logVerbose } from "../globals.js";
 import { resolveSessionFilePath } from "../config/sessions.js";
-import { maybeApplyTtsToPayload } from "../tts/tts.js";
+import { maybeApplyTtsToPayload, resolveTtsConfig, resolveTtsPrefsPath, resolveTtsAutoMode } from "../tts/tts.js";
 import { inlineAudioInMessage, inlineAudioInText } from "./chat-audio-inline.js";
 import { loadSessionEntry } from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
@@ -271,11 +271,28 @@ export function createAgentEventHandler({
     if (jobState === "done") {
       let finalText = rawText;
 
-      // Check for [[tts]] tags in the agent's streamed text and generate
-      // TTS audio before broadcasting. Agent runs bypass the dispatcher
-      // where TTS is normally applied, so we handle it here.
+      // Apply TTS to the final text for webchat. Agent runs bypass the
+      // dispatcher where TTS is normally applied, so we handle it here.
+      // TTS triggers when: (a) [[tts]] tags are present, OR (b) auto-TTS
+      // is enabled ("always"/"inbound"/"tagged") AND text has no MEDIA: line
+      // (which would indicate the agent already generated audio via tts tool).
       const hasTtsTag = rawText && /\[\[\s*tts[\s:\]]/i.test(rawText);
-      if (hasTtsTag) {
+      const hasExistingMedia = rawText && rawText.includes("MEDIA:");
+      const shouldAutoTts = (() => {
+        if (hasTtsTag) { return true; }
+        if (hasExistingMedia) { return false; }
+        if (!rawText || rawText.trim().length < 10) { return false; }
+        try {
+          const cfg = loadConfig();
+          const ttsConfig = resolveTtsConfig(cfg);
+          const prefsPath = resolveTtsPrefsPath(ttsConfig);
+          const autoMode = resolveTtsAutoMode({ config: ttsConfig, prefsPath });
+          return autoMode === "always";
+        } catch {
+          return false;
+        }
+      })();
+      if (shouldAutoTts) {
         try {
           const cfg = loadConfig();
           const ttsResult = await maybeApplyTtsToPayload({
