@@ -228,6 +228,7 @@ It’s perfectly fine to run the Gateway on a small Linux instance. Clients (mac
 
 - **Gateway host** runs the exec tool and channel connections by default.
 - **Device nodes** run device‑local actions (`system.run`, camera, screen recording, notifications) via `node.invoke`.
+
   In short: exec runs where the Gateway lives; device actions run where the device lives.
 
 Details: [Remote access](https://docs.openclaw.ai/gateway/remote) · [Nodes](https://docs.openclaw.ai/nodes) · [Security](https://docs.openclaw.ai/gateway/security)
