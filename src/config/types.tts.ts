@@ -1,4 +1,4 @@
-export type TtsProvider = "elevenlabs" | "openai" | "edge" | "fishspeech" | "kokoro";
+export type TtsProvider = "elevenlabs" | "openai" | "edge" | "fishspeech" | "kokoro" | "orpheus" | "chatterbox" | "chattts";
 
 export type TtsMode = "final" | "all";
 
@@ -86,6 +86,20 @@ export type TtsConfig = {
     baseUrl?: string;
     voice?: string;
     speed?: number;
+  };
+  /** Orpheus TTS configuration. */
+  orpheus?: {
+    baseUrl?: string;
+    voice?: string;
+  };
+  /** Chatterbox TTS configuration (ResembleAI). */
+  chatterbox?: {
+    baseUrl?: string;
+    voice?: string;
+  };
+  /** ChatTTS configuration. */
+  chattts?: {
+    baseUrl?: string;
   };
   /** Optional path for local TTS user preferences JSON. */
   prefsPath?: string;

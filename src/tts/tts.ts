@@ -57,6 +57,14 @@ const DEFAULT_FISHSPEECH_SEED = 45;
 const DEFAULT_KOKORO_BASE_URL = "http://127.0.0.1:8090";
 const DEFAULT_KOKORO_VOICE = "af_heart";
 
+const DEFAULT_ORPHEUS_BASE_URL = "http://127.0.0.1:8094";
+const DEFAULT_ORPHEUS_VOICE = "tara";
+
+const DEFAULT_CHATTERBOX_BASE_URL = "http://127.0.0.1:8094";
+const DEFAULT_CHATTERBOX_VOICE = "default";
+
+const DEFAULT_CHATTTS_BASE_URL = "http://127.0.0.1:8095";
+
 const DEFAULT_ELEVENLABS_VOICE_SETTINGS = {
   stability: 0.5,
   similarityBoost: 0.75,
@@ -141,6 +149,17 @@ export type ResolvedTtsConfig = {
     voice: string;
     speed: number;
   };
+  orpheus: {
+    baseUrl: string;
+    voice: string;
+  };
+  chatterbox: {
+    baseUrl: string;
+    voice: string;
+  };
+  chattts: {
+    baseUrl: string;
+  };
   prefsPath?: string;
   maxTextLength: number;
   timeoutMs: number;
@@ -186,6 +205,12 @@ type TtsDirectiveOverrides = {
     seed?: number;
   };
   kokoro?: {
+    voice?: string;
+  };
+  orpheus?: {
+    voice?: string;
+  };
+  chatterbox?: {
     voice?: string;
   };
 };
@@ -332,6 +357,17 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
       baseUrl: raw.kokoro?.baseUrl?.trim() || DEFAULT_KOKORO_BASE_URL,
       voice: raw.kokoro?.voice?.trim() || DEFAULT_KOKORO_VOICE,
       speed: raw.kokoro?.speed ?? 1.0,
+    },
+    orpheus: {
+      baseUrl: raw.orpheus?.baseUrl?.trim() || DEFAULT_ORPHEUS_BASE_URL,
+      voice: raw.orpheus?.voice?.trim() || DEFAULT_ORPHEUS_VOICE,
+    },
+    chatterbox: {
+      baseUrl: raw.chatterbox?.baseUrl?.trim() || DEFAULT_CHATTERBOX_BASE_URL,
+      voice: raw.chatterbox?.voice?.trim() || DEFAULT_CHATTERBOX_VOICE,
+    },
+    chattts: {
+      baseUrl: raw.chattts?.baseUrl?.trim() || DEFAULT_CHATTTS_BASE_URL,
     },
     prefsPath: raw.prefsPath,
     maxTextLength: raw.maxTextLength ?? DEFAULT_MAX_TEXT_LENGTH,
@@ -541,10 +577,19 @@ export function resolveTtsApiKey(
   if (provider === "kokoro") {
     return undefined;
   }
+  if (provider === "orpheus") {
+    return undefined;
+  }
+  if (provider === "chatterbox") {
+    return undefined;
+  }
+  if (provider === "chattts") {
+    return undefined;
+  }
   return undefined;
 }
 
-export const TTS_PROVIDERS = ["openai", "elevenlabs", "edge", "fishspeech", "kokoro"] as const;
+export const TTS_PROVIDERS = ["openai", "elevenlabs", "kokoro", "chatterbox", "orpheus", "fishspeech", "chattts", "edge"] as const;
 
 export function resolveTtsProviderOrder(primary: TtsProvider): TtsProvider[] {
   return [primary, ...TTS_PROVIDERS.filter((provider) => provider !== primary)];
@@ -558,6 +603,15 @@ export function isTtsProviderConfigured(config: ResolvedTtsConfig, provider: Tts
     return true;
   }
   if (provider === "kokoro") {
+    return true;
+  }
+  if (provider === "orpheus") {
+    return true;
+  }
+  if (provider === "chatterbox") {
+    return true;
+  }
+  if (provider === "chattts") {
     return true;
   }
   return Boolean(resolveTtsApiKey(config, provider));
@@ -689,7 +743,7 @@ function parseTtsDirectives(
             if (!policy.allowProvider) {
               break;
             }
-            if (rawValue === "openai" || rawValue === "elevenlabs" || rawValue === "edge" || rawValue === "fishspeech") {
+            if (rawValue === "openai" || rawValue === "elevenlabs" || rawValue === "edge" || rawValue === "fishspeech" || rawValue === "kokoro" || rawValue === "orpheus" || rawValue === "chatterbox" || rawValue === "chattts") {
               overrides.provider = rawValue;
             } else {
               warnings.push(`unsupported provider "${rawValue}"`);
@@ -1304,6 +1358,75 @@ async function kokoroTTS(params: {
   }
 }
 
+async function orpheusTTS(params: {
+  text: string;
+  baseUrl: string;
+  voice: string;
+  timeoutMs: number;
+}): Promise<Buffer> {
+  const { text: rawText, baseUrl, voice, timeoutMs } = params;
+
+  // Strip emoji and other non-ASCII chars that cause charmap codec errors in Chatterbox/Orpheus
+  const text = rawText.replace(/[^\x20-\x7E\n\r\t]/g, "").replace(/\s+/g, " ").trim();
+
+  const controller = new AbortController();
+  const timeout = setTimeout(controller.abort.bind(controller), timeoutMs);
+
+  try {
+    const body: Record<string, unknown> = {
+      text,
+      voice,
+    };
+
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/v1/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Orpheus API error (${response.status})`);
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function chatttsTTS(params: {
+  text: string;
+  baseUrl: string;
+  timeoutMs: number;
+}): Promise<Buffer> {
+  const { text, baseUrl, timeoutMs } = params;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(controller.abort.bind(controller), timeoutMs);
+
+  try {
+    const body: Record<string, unknown> = {
+      text,
+    };
+
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/v1/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`ChatTTS API error (${response.status})`);
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function textToSpeech(params: {
   text: string;
   cfg: OpenClawConfig;
@@ -1436,6 +1559,79 @@ export async function textToSpeech(params: {
           baseUrl: config.kokoro.baseUrl,
           voice: voiceOverride ?? config.kokoro.voice,
           speed: config.kokoro.speed,
+          timeoutMs: config.timeoutMs,
+        });
+
+        const latencyMs = Date.now() - providerStart;
+        const tempDir = mkdtempSync(path.join(tmpdir(), "tts-"));
+        const audioPath = path.join(tempDir, `voice-${Date.now()}.wav`);
+        writeFileSync(audioPath, audioBuffer);
+        scheduleCleanup(tempDir);
+
+        return {
+          success: true,
+          audioPath,
+          latencyMs,
+          provider,
+          outputFormat: "wav",
+          voiceCompatible: false,
+        };
+      }
+
+      if (provider === "orpheus") {
+        const voiceOverride = params.overrides?.orpheus?.voice;
+        const audioBuffer = await orpheusTTS({
+          text: params.text,
+          baseUrl: config.orpheus.baseUrl,
+          voice: voiceOverride ?? config.orpheus.voice,
+          timeoutMs: config.timeoutMs,
+        });
+
+        const latencyMs = Date.now() - providerStart;
+        const tempDir = mkdtempSync(path.join(tmpdir(), "tts-"));
+        const audioPath = path.join(tempDir, `voice-${Date.now()}.wav`);
+        writeFileSync(audioPath, audioBuffer);
+        scheduleCleanup(tempDir);
+
+        return {
+          success: true,
+          audioPath,
+          latencyMs,
+          provider,
+          outputFormat: "wav",
+          voiceCompatible: false,
+        };
+      }
+
+      if (provider === "chatterbox") {
+        const voiceOverride = params.overrides?.chatterbox?.voice;
+        const audioBuffer = await orpheusTTS({
+          text: params.text,
+          baseUrl: config.chatterbox.baseUrl,
+          voice: voiceOverride ?? config.chatterbox.voice,
+          timeoutMs: config.timeoutMs,
+        });
+
+        const latencyMs = Date.now() - providerStart;
+        const tempDir = mkdtempSync(path.join(tmpdir(), "tts-"));
+        const audioPath = path.join(tempDir, `voice-${Date.now()}.wav`);
+        writeFileSync(audioPath, audioBuffer);
+        scheduleCleanup(tempDir);
+
+        return {
+          success: true,
+          audioPath,
+          latencyMs,
+          provider,
+          outputFormat: "wav",
+          voiceCompatible: false,
+        };
+      }
+
+      if (provider === "chattts") {
+        const audioBuffer = await chatttsTTS({
+          text: params.text,
+          baseUrl: config.chattts.baseUrl,
           timeoutMs: config.timeoutMs,
         });
 
