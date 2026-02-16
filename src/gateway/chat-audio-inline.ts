@@ -24,6 +24,10 @@ const AUDIO_EXT_TO_MIME: Record<string, string> = {
 // Reuses the same pattern as src/media/parse.ts but we only care about audio files.
 const MEDIA_LINE_RE = /^[ \t]*MEDIA:\s*`?([^\n`]+?)`?\s*$/gm;
 
+// Match [[tts:filepath]] tags where the content looks like a local audio file path
+// (not key=value TTS directives). These get normalized to MEDIA: lines before inlining.
+const TTS_TAG_FILE_RE = /\[\[tts:([^\]]+)\]\]/gi;
+
 function isAudioPath(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   return ext in AUDIO_EXT_TO_MIME;
@@ -83,11 +87,36 @@ function tryInlineAudio(rawPath: string): string | null {
 }
 
 /**
+ * Convert [[tts:filepath]] tags to MEDIA:filepath lines when the tag content
+ * looks like a local audio file path rather than TTS directives (key=value).
+ * This handles the case where the model wraps a TTS tool result in [[tts:]]
+ * tags instead of outputting a bare MEDIA: line.
+ */
+export function normalizeTtsTagsToMedia(text: string): string {
+  if (!text || !text.includes("[[tts:")) {
+    return text;
+  }
+
+  return text.replace(TTS_TAG_FILE_RE, (_match, body: string) => {
+    const trimmed = body.trim();
+    // If it looks like a file path (has a file extension and is a local path),
+    // convert to MEDIA: line. Otherwise leave it for the TTS directive parser.
+    if (isLocalPath(trimmed) && isAudioPath(trimmed)) {
+      return `MEDIA:${trimmed}`;
+    }
+    return _match;
+  });
+}
+
+/**
  * Process a text string, replacing MEDIA: lines that reference local audio
  * files with <audio-data:...> markers containing base64-encoded audio.
  * Non-audio MEDIA: lines and unreachable files are left untouched.
  */
 export function inlineAudioInText(text: string): string {
+  // First normalize any [[tts:filepath]] tags to MEDIA: lines
+  text = normalizeTtsTagsToMedia(text);
+
   if (!text || !text.includes("MEDIA:")) {
     return text;
   }
