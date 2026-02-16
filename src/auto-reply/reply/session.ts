@@ -6,7 +6,9 @@ import type { OpenClawConfig } from "../../config/config.js";
 import type { TtsAutoMode } from "../../config/types.tts.js";
 import type { MsgContext, TemplateContext } from "../templating.js";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
+import { resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
 import { normalizeChatType } from "../../channels/chat-type.js";
+import { generateSessionHandoff } from "./session-handoff.js";
 import {
   DEFAULT_RESET_TRIGGERS,
   deriveSessionMetaPatch,
@@ -396,6 +398,17 @@ export async function initSessionState(params: {
     SessionId: sessionId,
     IsNewSession: isNewSession ? "true" : "false",
   };
+
+  // Generate session handoff when resetting via /new or /reset
+  if (resetTriggered && previousSessionEntry) {
+    const handoffWorkspace = resolveAgentWorkspaceDir(cfg, agentId);
+    void generateSessionHandoff({
+      previousEntry: previousSessionEntry,
+      workspaceDir: handoffWorkspace,
+      agentId,
+      sessionsDir: path.dirname(storePath),
+    }).catch(() => {});
+  }
 
   // Run session plugin hooks (fire-and-forget)
   const hookRunner = getGlobalHookRunner();

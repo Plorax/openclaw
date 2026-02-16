@@ -29,6 +29,7 @@ export const DEFAULT_HEARTBEAT_FILENAME = "HEARTBEAT.md";
 export const DEFAULT_BOOTSTRAP_FILENAME = "BOOTSTRAP.md";
 export const DEFAULT_MEMORY_FILENAME = "MEMORY.md";
 export const DEFAULT_MEMORY_ALT_FILENAME = "memory.md";
+export const DEFAULT_SESSION_HANDOFF_FILENAME = "SESSION_HANDOFF.md";
 
 const workspaceTemplateCache = new Map<string, Promise<string>>();
 let gitAvailabilityPromise: Promise<boolean> | null = null;
@@ -84,7 +85,8 @@ export type WorkspaceBootstrapFileName =
   | typeof DEFAULT_HEARTBEAT_FILENAME
   | typeof DEFAULT_BOOTSTRAP_FILENAME
   | typeof DEFAULT_MEMORY_FILENAME
-  | typeof DEFAULT_MEMORY_ALT_FILENAME;
+  | typeof DEFAULT_MEMORY_ALT_FILENAME
+  | typeof DEFAULT_SESSION_HANDOFF_FILENAME;
 
 export type WorkspaceBootstrapFile = {
   name: WorkspaceBootstrapFileName;
@@ -300,6 +302,15 @@ export async function loadWorkspaceBootstrapFiles(dir: string): Promise<Workspac
   ];
 
   entries.push(...(await resolveMemoryBootstrapEntries(resolvedDir)));
+
+  // Session handoff file (generated on /new or /reset, optional)
+  const handoffPath = path.join(resolvedDir, DEFAULT_SESSION_HANDOFF_FILENAME);
+  try {
+    await fs.access(handoffPath);
+    entries.push({ name: DEFAULT_SESSION_HANDOFF_FILENAME, filePath: handoffPath });
+  } catch {
+    // optional — only present after a session reset
+  }
 
   const result: WorkspaceBootstrapFile[] = [];
   for (const entry of entries) {
